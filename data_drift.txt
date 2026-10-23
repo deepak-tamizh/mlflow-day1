@@ -1,0 +1,85 @@
+
+import mlflow
+import pandas as pd
+
+from scipy.stats import ks_2samp
+from sklearn.datasets import load_wine
+from sklearn.model_selection import train_test_split
+
+# Connect to MLflow
+mlflow.set_tracking_uri("http://127.0.0.1:5000")
+mlflow.set_experiment("Wine-Data-Drift")
+
+# Load the original Wine dataset
+wine = load_wine(as_frame=True) # Loads the Wine dataset in Pandas DataFrame format.
+X = wine.data # Extracts only the 13 input features from the Wine dataset.
+
+# Allocates 20% of the data to incoming and the remaining 80% to baseline.
+# baseline — The initial data used for comparison.
+# incoming — The data used to simulate newly arriving data.
+baseline, incoming = train_test_split(
+    X, test_size=0.2, random_state=42
+)
+
+# Simulate changes in incoming data
+incoming = incoming.copy() # Creates an independent copy of the incoming DataFrame.
+incoming["alcohol"] += 1.5 # Adds 1.5 to every value in the alcohol feature.
+incoming["color_intensity"] *= 1.5 # Multiplies every value in the color_intensity feature by 1.5.
+
+results = []
+
+#statistic — Represents the maximum difference between the two distributions.
+# p_value — Helps determine whether there is a statistically significant difference between the two distributions.
+with mlflow.start_run(run_name="Data-Drift-Detection"):
+    for feature in X.columns: # It iterates through each feature in Wine dataset one by one for inspection. Ex: alcohol, color_intensity, malic_acid, and so on.
+        statistic, p_value = ks_2samp( # The Kolmogorov–Smirnov (KS) test compares the distributions of two data samples.
+            baseline[feature], # The values of that feature in the baseline data.
+            incoming[feature], # The values of the same feature in the incoming data.
+        )
+
+        drift = p_value < 0.05
+
+""" - If p_value < 0.05, then drift = True.
+- Otherwise, drift = False.
+Here, 0.05 is the selected significance threshold.
+
+Note: True indicates that the KS test has detected a statistically significant change in the distribution.
+However, this alone does not prove that model performance has been affected."""
+        
+        results.append({
+            "feature": feature,
+            "ks_statistic": statistic,
+            "p_value": p_value,
+            "drift_detected": drift,
+        })
+
+        mlflow.log_metric(f"{feature}_p_value", float(p_value))
+        mlflow.log_metric(f"{feature}_drift", int(drift),
+        )
+
+    report = pd.DataFrame(results)
+    report.to_csv("drift_report.csv", index=False)
+    mlflow.log_artifact("drift_report.csv")
+
+# This code selects only the features with drift_detected=True and prints their names, KS statistics, and p-values.
+    print("\nData Drift Report:")
+    print(
+        report[report["drift_detected"]][
+            ["feature", "ks_statistic", "p_value"]
+        ].to_string(index=False)
+    )
+
+# report["drift_detected"].sum() — The number of features in which drift was detected.
+# len(report) — The total number of features tested.
+# For example, 2 out of 13 means that drift was detected in 2 out of the 13 features.
+    print(
+        "\nFeatures showing drift:",
+        int(report["drift_detected"].sum()),
+        "out of",
+        len(report),
+    )
+
+
+
+
+

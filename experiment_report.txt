@@ -1,0 +1,4 @@
+Wine Classification Report
+===========================
+Test Accuracy: 1.0000
+Parameters: {'n_estimators': 200, 'max_depth': None}
