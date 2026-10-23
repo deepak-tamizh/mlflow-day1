@@ -28,6 +28,8 @@ BODY = {
 }
 
 ROUNDS = 10
+MAX_LATENCY_MS = 200
+MAX_FAILURE_RATE = 0.05
 results = []
 
 for name, base_url in APIS.items():
@@ -90,6 +92,22 @@ for name, base_url in APIS.items():
     print(f"Successful requests: {successes}/{ROUNDS}")
     print(f"Failed requests: {failures}/{ROUNDS}")
     print(f"Average successful latency: {avg:.2f} ms")
+    
+    
+    failure_rate = failures / ROUNDS
+    print("\n--- ALERT CHECK ---")
+
+    if avg > MAX_LATENCY_MS:
+        print("WARNING: Average latency exceeded the threshold!")
+    else:
+        print("OK: Average latency is within the threshold.")
+
+    if failure_rate > MAX_FAILURE_RATE:
+        print("WARNING: Failure rate exceeded the threshold!")
+    else:
+        print("OK: Failure rate is within the threshold.")
+
+
 
 with open("model_monitoring.csv", "w", newline="", encoding="utf-8") as file:
     writer = csv.DictWriter(file, fieldnames=results[0].keys())
