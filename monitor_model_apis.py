@@ -1,4 +1,5 @@
 
+import math
 import csv
 import json
 import time
@@ -27,9 +28,12 @@ BODY = {
     }
 }
 
-ROUNDS = 10
+ROUNDS = 100
 MAX_LATENCY_MS = 200
 MAX_FAILURE_RATE = 0.05
+MAX_P95_LATENCY_MS = 200
+MAX_P99_LATENCY_MS = 200
+
 results = []
 
 for name, base_url in APIS.items():
@@ -88,10 +92,18 @@ for name, base_url in APIS.items():
             + (f" | {error}" if error else "")
         )
 
-    avg = sum(latencies) / len(latencies) if latencies else 0
+    avg = sum(latencies) / len(latencies) if latencies else 0 
+    sorted_latencies = sorted(latencies)
+    p95_index = max(0, math.ceil(0.95 * len(sorted_latencies)) - 1)
+    p95_latency = sorted_latencies[p95_index] if sorted_latencies else 0
+    p99_index = max(0, math.ceil(0.99 * len(sorted_latencies)) - 1)
+    p99_latency = sorted_latencies[p99_index] if sorted_latencies else 0
+
     print(f"Successful requests: {successes}/{ROUNDS}")
     print(f"Failed requests: {failures}/{ROUNDS}")
     print(f"Average successful latency: {avg:.2f} ms")
+    print(f"P95 latency: {p95_latency:.2f} ms")
+    print(f"P99 latency: {p99_latency:.2f} ms")
     
     
     failure_rate = failures / ROUNDS
@@ -101,12 +113,21 @@ for name, base_url in APIS.items():
         print("WARNING: Average latency exceeded the threshold!")
     else:
         print("OK: Average latency is within the threshold.")
+    
+    if p95_latency > MAX_P95_LATENCY_MS:
+        print("WARNING: P95 latency exceeded the threshold!")
+    else:
+        print("OK: P95 latency is within the threshold.")
+
+    if p99_latency > MAX_P99_LATENCY_MS:
+        print("WARNING: P99 latency exceeded the threshold!")
+    else:
+        print("OK: P99 latency is within the threshold.")
 
     if failure_rate > MAX_FAILURE_RATE:
         print("WARNING: Failure rate exceeded the threshold!")
     else:
         print("OK: Failure rate is within the threshold.")
-
 
 
 with open("model_monitoring.csv", "w", newline="", encoding="utf-8") as file:
