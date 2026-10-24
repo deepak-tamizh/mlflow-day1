@@ -4,7 +4,6 @@ import csv
 import json
 import time
 import urllib.request
-import urllib.error
 from datetime import datetime
 
 APIS = {
@@ -29,6 +28,8 @@ BODY = {
 }
 
 ROUNDS = 100
+WARMUP_ROUNDS = 5
+
 MAX_LATENCY_MS = 200
 MAX_FAILURE_RATE = 0.05
 MAX_P95_LATENCY_MS = 200
@@ -38,10 +39,41 @@ results = []
 
 for name, base_url in APIS.items():
     print(f"\nMonitoring: {name}")
+
     successes = 0
     failures = 0
     latencies = []
 
+    # Warm-up requests: excluded from measured results and CSV
+    print(f"Running {WARMUP_ROUNDS} warm-up requests...")
+
+    for warmup_i in range(1, WARMUP_ROUNDS + 1):
+        started = time.perf_counter()
+
+        try:
+            request = urllib.request.Request(
+                base_url + "/invocations",
+                data=json.dumps(BODY).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response_body = json.loads(
+                    response.read().decode("utf-8")
+                )
+
+                if response.status == 200 and "predictions" in response_body:
+                    print(f"Warm-up {warmup_i}: PASS")
+                else:
+                    print(f"Warm-up {warmup_i}: FAIL | Unexpected response")
+
+        except Exception as exc:
+            print(f"Warm-up {warmup_i}: FAIL | {exc}")
+
+    print(f"\nStarting {ROUNDS} measured requests...")
+
+    # Measured requests
     for i in range(1, ROUNDS + 1):
         started = time.perf_counter()
         status = "FAIL"
@@ -57,10 +89,11 @@ for name, base_url in APIS.items():
             )
 
             with urllib.request.urlopen(request, timeout=10) as response:
-                elapsed_ms = (time.perf_counter() - started) * 1000
                 response_body = json.loads(
                     response.read().decode("utf-8")
                 )
+
+                elapsed_ms = (time.perf_counter() - started) * 1000
 
                 if response.status == 200 and "predictions" in response_body:
                     status = "PASS"
@@ -87,33 +120,36 @@ for name, base_url in APIS.items():
         })
 
         print(
-            f"Request {i:02d}: {status} | "
+            f"Request {i:03d}: {status} | "
             f"{elapsed_ms:.2f} ms"
             + (f" | {error}" if error else "")
         )
 
-    avg = sum(latencies) / len(latencies) if latencies else 0 
+    # Calculate metrics using successful measured requests only
+    avg = sum(latencies) / len(latencies) if latencies else 0
     sorted_latencies = sorted(latencies)
+
     p95_index = max(0, math.ceil(0.95 * len(sorted_latencies)) - 1)
     p95_latency = sorted_latencies[p95_index] if sorted_latencies else 0
+
     p99_index = max(0, math.ceil(0.99 * len(sorted_latencies)) - 1)
     p99_latency = sorted_latencies[p99_index] if sorted_latencies else 0
 
-    print(f"Successful requests: {successes}/{ROUNDS}")
+    print(f"\nSuccessful requests: {successes}/{ROUNDS}")
     print(f"Failed requests: {failures}/{ROUNDS}")
     print(f"Average successful latency: {avg:.2f} ms")
     print(f"P95 latency: {p95_latency:.2f} ms")
     print(f"P99 latency: {p99_latency:.2f} ms")
-    
-    
+
     failure_rate = failures / ROUNDS
+
     print("\n--- ALERT CHECK ---")
 
     if avg > MAX_LATENCY_MS:
         print("WARNING: Average latency exceeded the threshold!")
     else:
         print("OK: Average latency is within the threshold.")
-    
+
     if p95_latency > MAX_P95_LATENCY_MS:
         print("WARNING: P95 latency exceeded the threshold!")
     else:
@@ -130,9 +166,14 @@ for name, base_url in APIS.items():
         print("OK: Failure rate is within the threshold.")
 
 
+# Save measured requests only; warm-up requests are excluded
 with open("model_monitoring.csv", "w", newline="", encoding="utf-8") as file:
-    writer = csv.DictWriter(file, fieldnames=results[0].keys())
+    fieldnames = [
+        "timestamp", "api", "request", "status",
+        "latency_ms", "prediction", "error"
+    ]
+    writer = csv.DictWriter(file, fieldnames=fieldnames)
     writer.writeheader()
     writer.writerows(results)
 
-print("\nDetailed results saved to model_monitoring.csv")
+print("\nDetailed measured results saved to model_monitoring.csv")
